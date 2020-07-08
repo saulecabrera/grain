@@ -1,6 +1,7 @@
 open Grain_parsing;
 open Grain_typed;
 open Grain_middle_end;
+open Grain_utils;
 
 open Asttypes;
 open Anftree;
@@ -57,10 +58,8 @@ let global_index = ref(0);
 let global_exports = () => {
   let tbl = global_table^;
   Ident.fold_all(
-    (ex_name, (ex_global_index, ex_getter_index), acc) => [
-      {ex_name, ex_global_index, ex_getter_index},
-      ...acc,
-    ],
+    (ex_name, (ex_global_index, ex_getter_index), acc) =>
+      [{ex_name, ex_global_index, ex_getter_index}, ...acc],
     tbl,
     [],
   );
@@ -108,7 +107,7 @@ module RegisterAllocation = {
   type t = (IntMap.t(int), list(int));
   let initialize = (num_locals: int): t => (
     IntMap.empty,
-    BatList.init(num_locals, x => x),
+    List.init(num_locals, x => x),
   );
   /* Takes an id (a local from the original mashtree) and assigns a slot to it */
   let allocate = var_id =>
@@ -202,10 +201,8 @@ module RegisterAllocation = {
     | MStore(bs) =>
       MStore(
         List.map(
-          ((b, bk)) => (
-            apply_allocation_to_bind(b),
-            apply_allocations(allocs, bk),
-          ),
+          ((b, bk)) =>
+            (apply_allocation_to_bind(b), apply_allocations(allocs, bk)),
           bs,
         ),
       )
@@ -354,7 +351,7 @@ let run_register_allocation = (instrs: list(Mashtree.instr)) => {
       help((allocs, []), active);
     };
     let _ =
-      BatList.fold_lefti(
+      List_utils.fold_lefti(
         ((allocs, active), i, (var_id, (start_inst, end_inst)) as cur) => {
           let (allocs, active) =
             expire_old_intervals(start_inst, allocs, active);
@@ -397,7 +394,7 @@ let compile_lambda = (env, args, body): Mashtree.closure_data => {
   /* Bind all non-arguments in the function body to
      their respective closure slots */
   let free_binds =
-    BatList.fold_lefti(
+    List_utils.fold_lefti(
       (acc, closure_idx, var) =>
         Ident.add(var, MClosureBind(Int32.of_int(closure_idx)), acc),
       Ident.empty,
@@ -406,7 +403,7 @@ let compile_lambda = (env, args, body): Mashtree.closure_data => {
   let closure_arg = Ident.create("$self");
   let new_args = [closure_arg, ...args];
   let arg_binds =
-    BatList.fold_lefti(
+    List_utils.fold_lefti(
       (acc, arg_idx, arg) =>
         Ident.add(arg, MArgBind(Int32.of_int(arg_idx)), acc),
       free_binds,
@@ -442,7 +439,7 @@ let compile_wrapper = (env, func_name, arity): Mashtree.closure_data => {
     [@implicit_arity]
     MCallKnown(
       func_name,
-      BatList.init(arity, i => MImmBinding(MArgBind(Int32.of_int(i + 1)))),
+      List.init(arity, i => MImmBinding(MArgBind(Int32.of_int(i + 1)))),
     ),
   ];
   let idx = next_lift();
@@ -596,34 +593,31 @@ and compile_anf_expr = (env, a) =>
       };
     let locations = List.mapi(get_loc, binds);
     let new_env =
-      BatList.fold_left2(
-        (acc, new_loc, (id, _)) => {
-          ...acc,
-          ce_binds: Ident.add(id, new_loc, acc.ce_binds),
-          ce_stack_idx: acc.ce_stack_idx + 1,
-        }, /* FIXME: Why is this not ce_stack_idx + (List.length binds)?? */
+      List.fold_left2(
+        (acc, new_loc, (id, _)) =>
+          {
+            ...acc,
+            ce_binds: Ident.add(id, new_loc, acc.ce_binds),
+            ce_stack_idx: acc.ce_stack_idx + 1,
+          }, /* FIXME: Why is this not ce_stack_idx + (List.length binds)?? */
         env,
         locations,
         binds,
       );
     switch (recflag) {
     | Nonrecursive =>
-      BatList.fold_right2(
-        (loc, (_, rhs), acc) => [
-          MStore([(loc, compile_comp(env, rhs))]),
-          ...acc,
-        ],
+      List.fold_right2(
+        (loc, (_, rhs), acc) =>
+          [MStore([(loc, compile_comp(env, rhs))]), ...acc],
         locations,
         binds,
         compile_anf_expr(new_env, body),
       )
     | Recursive =>
       let binds =
-        BatList.fold_left2(
-          (acc, loc, (_, rhs)) => [
-            (loc, compile_comp(new_env, rhs)),
-            ...acc,
-          ],
+        List.fold_left2(
+          (acc, loc, (_, rhs)) =>
+            [(loc, compile_comp(new_env, rhs)), ...acc],
           [],
           locations,
           binds,
@@ -671,8 +665,8 @@ let lift_imports = (env, imports) => {
     | [@implicit_arity] FunctionShape(inputs, outputs) =>
       [@implicit_arity]
       MFuncImport(
-        BatList.init(inputs, _ => I32Type),
-        BatList.init(outputs, _ => I32Type),
+        List.init(inputs, _ => I32Type),
+        List.init(outputs, _ => I32Type),
       );
 
   let process_import =
@@ -788,10 +782,8 @@ let transl_anf_program =
   let exports = global_exports();
   let functions =
     List.map(
-      ({body} as f: Mashtree.mash_function) => {
-        ...f,
-        body: run_register_allocation(body),
-      },
+      ({body} as f: Mashtree.mash_function) =>
+        {...f, body: run_register_allocation(body)},
       compile_remaining_worklist(),
     );
 
