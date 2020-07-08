@@ -9,7 +9,6 @@
   extlib
   ppx_sexp_conv.runtime-lib
   sexplib
-  stdint
   wasm)
  (preprocess
   (pps ppx_sexp_conv)))
